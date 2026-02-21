@@ -1,0 +1,6 @@
+{
+	"dependencies": {
+		"braintrust": "^3.1.0",
+		"@google/genai": "^1.42.0"
+	}
+}
