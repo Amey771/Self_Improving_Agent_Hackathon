@@ -53,6 +53,7 @@ class BraintrustClient:
         minutes: int,
         source: str,
         voice_generated: bool,
+        voice_profile: dict[str, Any] | None = None,
     ) -> bool:
         if not self._status["enabled"] or not self._logger:
             return False
@@ -81,6 +82,7 @@ class BraintrustClient:
                     "trace_candidates": [candidate.model_dump() for candidate in incident.trace_candidates],
                     "top_fix": top_fix,
                     "fix_proposals": [proposal.model_dump() for proposal in incident.fix_proposals],
+                    "voice_profile": voice_profile,
                     "voice_generated": voice_generated,
                 },
                 metadata={
@@ -94,6 +96,52 @@ class BraintrustClient:
                     "voice_generation_success": 1.0 if voice_generated else 0.0,
                 },
                 tags=["voiceops", f"service:{service}", f"source:{source}"],
+            )
+            self._logger.flush()
+            return True
+        except Exception:
+            return False
+
+    def log_remediation_event(
+        self,
+        incident: Incident,
+        *,
+        action: str,
+        remediation_state: dict[str, Any],
+        repo_validation: dict[str, Any] | None = None,
+    ) -> bool:
+        if not self._status["enabled"] or not self._logger:
+            return False
+
+        try:
+            self._logger.log(
+                input={
+                    "incident_id": incident.id,
+                    "service": incident.service,
+                    "severity": incident.severity,
+                    "action": action,
+                },
+                output={
+                    "status": remediation_state.get("status"),
+                    "target_file": remediation_state.get("target_file"),
+                    "target_line": remediation_state.get("target_line"),
+                    "strategy": remediation_state.get("strategy"),
+                    "validation_passed": remediation_state.get("validation_passed", False),
+                    "applied": remediation_state.get("applied", False),
+                    "backup_path": remediation_state.get("backup_path"),
+                    "repo_validation": repo_validation,
+                },
+                metadata={
+                    "component": "voiceops_remediation",
+                    "project": "self_improving_agent_hackathon",
+                },
+                scores={
+                    "patch_generated": 1.0 if remediation_state.get("status") == "generated" else 0.0,
+                    "patch_validation_passed": 1.0 if remediation_state.get("validation_passed") else 0.0,
+                    "patch_applied": 1.0 if remediation_state.get("applied") else 0.0,
+                    "repo_validation_passed": 1.0 if (repo_validation or {}).get("ok") else 0.0,
+                },
+                tags=["voiceops", "remediation", f"action:{action}", f"service:{incident.service}"],
             )
             self._logger.flush()
             return True

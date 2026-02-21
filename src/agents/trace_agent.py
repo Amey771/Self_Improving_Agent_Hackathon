@@ -36,6 +36,8 @@ class TraceAgent:
 
         if not candidates:
             candidates.extend(self._fallback_from_service(incident.service))
+        if not candidates:
+            candidates.extend(self._fallback_defaults())
 
         incident.trace_candidates = self._dedupe_and_rank(candidates)
         return incident
@@ -116,6 +118,26 @@ class TraceAgent:
                     )
                 )
         return scored[:3]
+
+    def _fallback_defaults(self) -> list[TraceCandidate]:
+        preferred = {
+            "src/agents/triage_agent.py": 0.35,
+            "src/integrations/datadog_client.py": 0.3,
+            "src/integrations/elevenlabs_tts.py": 0.25,
+        }
+        fallback: list[TraceCandidate] = []
+        for rel_path, confidence in preferred.items():
+            candidate_path = self.repo_root / rel_path
+            if candidate_path.exists():
+                fallback.append(
+                    TraceCandidate(
+                        file_path=rel_path,
+                        line=None,
+                        confidence=confidence,
+                        reason="fallback candidate when logs do not map to local files",
+                    )
+                )
+        return fallback
 
     def _dedupe_and_rank(self, candidates: Iterable[TraceCandidate]) -> list[TraceCandidate]:
         best: dict[tuple[str, int | None], TraceCandidate] = {}

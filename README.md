@@ -12,9 +12,11 @@ Current pipeline:
 2. Triage and extract recurring error signatures
 3. Trace likely source files/lines from incident logs
 4. Generate ranked fix proposals from signatures + trace candidates
-5. Produce a spoken incident summary with ElevenLabs
-6. Log run data + quality signals to Braintrust
-7. Run deterministic evals in Braintrust (triage/trace/fix)
+5. Generate concrete patch preview from chosen fix proposal
+6. Validate patch syntax, apply patch with backup, run repo validation, and rollback if needed
+7. Produce a spoken incident summary with ElevenLabs
+8. Log run data + quality signals to Braintrust
+9. Run deterministic evals in Braintrust (triage/trace/fix)
 
 ---
 
@@ -25,14 +27,14 @@ Datadog (or Simulator)
   -> Triage Agent
   -> Trace Agent
   -> Fix Agent
+  -> Remediation Agent (preview/validate/apply/rollback)
   -> Voice Summary (ElevenLabs)
   -> Braintrust Logging + Eval
 ```
 
 Future modules remain:
 
-- Patch application workflow
-- Verification agent (test gates)
+- Stronger automated verification agent (test gates beyond compile validation)
 - Memory/self-improvement loop
 
 ---
@@ -48,7 +50,8 @@ voice-ops/
 |   |-- agents/
 |   |   |-- triage_agent.py
 |   |   |-- trace_agent.py
-|   |   `-- fix_agent.py
+|   |   |-- fix_agent.py
+|   |   `-- remediation_agent.py
 |   |-- core/
 |   |   `-- models.py
 |   `-- integrations/
@@ -73,7 +76,9 @@ voice-ops/
 
 ### `app/streamlit_app.py`
 - Streamlit UI
-- Fetch -> triage -> trace -> fix -> voice pipeline trigger
+- Fetch -> triage -> trace -> fix -> remediation -> voice pipeline trigger
+- Sidebar controls for service window + voice tuning profile
+- Remediation controls for preview, validate, apply, and rollback
 - Braintrust status display and run logging
 
 ### `src/config.py`
@@ -96,9 +101,15 @@ voice-ops/
 - Produces deterministic patch strategies from signature + trace context
 - Adds ranked fix proposals to the incident payload
 
+### `src/agents/remediation_agent.py`
+- Builds concrete patch previews from selected fix proposals
+- Runs syntax validation and repo validation command
+- Applies patch with backup and supports rollback
+
 ### `src/integrations/elevenlabs_tts.py`
 - Text-to-speech generation
 - Voice auto-selection fallback if voice ID is not set
+- Runtime tuning for model, stability, similarity boost, style, and speaker boost
 
 ### `src/integrations/braintrust_client.py`
 - Initializes Braintrust logger
@@ -144,6 +155,12 @@ BRAINTRUST_PROJECT=voiceops
 
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ELEVENLABS_VOICE_ID=your_custom_voice_id
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+ELEVENLABS_STABILITY=0.35
+ELEVENLABS_SIMILARITY_BOOST=0.85
+ELEVENLABS_STYLE=0.2
+ELEVENLABS_USE_SPEAKER_BOOST=true
+REMEDIATION_VALIDATION_CMD=python -m compileall app src
 ```
 
 ---
@@ -172,8 +189,9 @@ braintrust eval evals/eval_fix_agent.py
 - Deterministic triage engine
 - First-pass trace engine (file/line candidate mapping)
 - First-pass fix strategy generator (ranked patch proposals)
+- Remediation workflow (preview, validate, apply, rollback)
 - Structured incident model
-- Voice summary generation
+- Voice summary generation with tuneable ElevenLabs profile
 - Braintrust run logging in app flow
 - Braintrust triage/trace/fix eval suites
 
@@ -181,7 +199,6 @@ braintrust eval evals/eval_fix_agent.py
 
 ## Pending Work
 
-- Local patch application workflow
-- Verification agent: run tests and risk gates
+- Verification agent: run tests and risk gates beyond compile checks
 - Memory store for self-improving behavior
 - Full multi-agent orchestration loop
