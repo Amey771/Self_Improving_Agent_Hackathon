@@ -17,3 +17,8 @@ class Incident(BaseModel):
     log_fingerprints: List[str]
     sample_logs: List[LogEvent]
     severity: str
+
+class TraceResult(BaseModel):
+    suspected_files: List[str]
+    matched_snippets: List[str]
+    hypothesis: str
