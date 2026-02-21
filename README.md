@@ -14,9 +14,10 @@ Current pipeline:
 4. Generate ranked fix proposals from signatures + trace candidates
 5. Generate concrete patch preview from chosen fix proposal
 6. Validate patch syntax, apply patch with backup, run repo validation, and rollback if needed
-7. Produce a spoken incident summary with ElevenLabs
-8. Log run data + quality signals to Braintrust
-9. Run deterministic evals in Braintrust (triage/trace/fix)
+7. Optionally run AI multi-agent auto-fix loop (diagnose -> backtrack -> narrow file -> generate patch -> verify -> retry)
+8. Produce a spoken incident summary with ElevenLabs
+9. Log run data + quality signals to Braintrust
+10. Run deterministic evals in Braintrust (triage/trace/fix)
 
 ---
 
@@ -27,6 +28,7 @@ Datadog (or Simulator)
   -> Triage Agent
   -> Trace Agent
   -> Fix Agent
+  -> AI Fix Orchestrator (LangGraph/LangChain when configured)
   -> Remediation Agent (preview/validate/apply/rollback)
   -> Voice Summary (ElevenLabs)
   -> Braintrust Logging + Eval
@@ -34,7 +36,7 @@ Datadog (or Simulator)
 
 Future modules remain:
 
-- Stronger automated verification agent (test gates beyond compile validation)
+- Stronger automated verification agent (tests and integration checks beyond compile validation)
 - Memory/self-improvement loop
 
 ---
@@ -51,7 +53,8 @@ voice-ops/
 |   |   |-- triage_agent.py
 |   |   |-- trace_agent.py
 |   |   |-- fix_agent.py
-|   |   `-- remediation_agent.py
+|   |   |-- remediation_agent.py
+|   |   `-- ai_fix_orchestrator.py
 |   |-- core/
 |   |   `-- models.py
 |   `-- integrations/
@@ -78,7 +81,7 @@ voice-ops/
 - Streamlit UI
 - Fetch -> triage -> trace -> fix -> remediation -> voice pipeline trigger
 - Sidebar controls for service window + voice tuning profile
-- Remediation controls for preview, validate, apply, and rollback
+- Remediation controls for preview, validate, apply, rollback, and AI auto-fix loop
 - Braintrust status display and run logging
 
 ### `src/config.py`
@@ -105,6 +108,11 @@ voice-ops/
 - Builds concrete patch previews from selected fix proposals
 - Runs syntax validation and repo validation command
 - Applies patch with backup and supports rollback
+
+### `src/agents/ai_fix_orchestrator.py`
+- Multi-agent auto-fix flow with nodes for diagnosis, codebase backtracking, file narrowing, patch generation, and verification
+- Uses LangGraph orchestration when available, with safe sequential fallback
+- Uses LangChain LLM client (OpenAI provider) when configured, with deterministic fallback when unavailable
 
 ### `src/integrations/elevenlabs_tts.py`
 - Text-to-speech generation
@@ -161,6 +169,10 @@ ELEVENLABS_SIMILARITY_BOOST=0.85
 ELEVENLABS_STYLE=0.2
 ELEVENLABS_USE_SPEAKER_BOOST=true
 REMEDIATION_VALIDATION_CMD=python -m compileall app src
+AI_MAX_FIX_ATTEMPTS=3
+LLM_PROVIDER=openai
+LLM_API_KEY=your_llm_api_key
+LLM_MODEL=gpt-4o-mini
 ```
 
 ---
@@ -190,6 +202,7 @@ braintrust eval evals/eval_fix_agent.py
 - First-pass trace engine (file/line candidate mapping)
 - First-pass fix strategy generator (ranked patch proposals)
 - Remediation workflow (preview, validate, apply, rollback)
+- AI multi-agent auto-fix loop with retry-until-pass behavior
 - Structured incident model
 - Voice summary generation with tuneable ElevenLabs profile
 - Braintrust run logging in app flow
@@ -199,6 +212,6 @@ braintrust eval evals/eval_fix_agent.py
 
 ## Pending Work
 
-- Verification agent: run tests and risk gates beyond compile checks
+- Verification agent: run richer tests and risk gates beyond compile checks
 - Memory store for self-improving behavior
-- Full multi-agent orchestration loop
+- Broader root-cause memory and policy learning across incidents

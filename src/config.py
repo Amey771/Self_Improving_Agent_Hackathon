@@ -24,6 +24,15 @@ def get_env_bool(name: str, default: bool) -> bool:
         return default
     return val.strip().lower() in {"1", "true", "yes", "on"}
 
+def get_env_int(name: str, default: int) -> int:
+    val = get_env(name)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
 class Settings:
     DD_API_KEY = get_env("DD_API_KEY")
     DD_APP_KEY = get_env("DD_APP_KEY")
@@ -41,6 +50,7 @@ class Settings:
     ELEVENLABS_STYLE = get_env_float("ELEVENLABS_STYLE", 0.2)
     ELEVENLABS_USE_SPEAKER_BOOST = get_env_bool("ELEVENLABS_USE_SPEAKER_BOOST", True)
     REMEDIATION_VALIDATION_CMD = get_env("REMEDIATION_VALIDATION_CMD", "python -m compileall app src")
+    AI_MAX_FIX_ATTEMPTS = get_env_int("AI_MAX_FIX_ATTEMPTS", 3)
 
     LLM_PROVIDER = get_env("LLM_PROVIDER")
     LLM_API_KEY = get_env("LLM_API_KEY")

@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from src.agents.fix_agent import FixAgent
+from src.agents.ai_fix_orchestrator import AIMultiAgentFixOrchestrator
 from src.agents.remediation_agent import RemediationAgent
 from src.agents.trace_agent import TraceAgent
 from src.agents.triage_agent import TriageAgent
@@ -110,6 +111,8 @@ def ensure_session_state():
         st.session_state["remediation_state"] = None
     if "repo_validation" not in st.session_state:
         st.session_state["repo_validation"] = None
+    if "ai_loop_result" not in st.session_state:
+        st.session_state["ai_loop_result"] = None
 
 
 def render_repo_validation(repo_validation: dict | None):
@@ -171,6 +174,8 @@ with st.sidebar:
     st.divider()
     st.subheader("Remediation")
     validation_command = st.text_input("Validation command", value=Settings.REMEDIATION_VALIDATION_CMD)
+    ai_max_attempts = st.slider("AI max attempts", 1, 6, int(Settings.AI_MAX_FIX_ATTEMPTS))
+    use_ai_loop = st.toggle("Enable AI Auto-Fix Loop", value=True)
 
 voice_profile = {
     "model_id": voice_model,
@@ -215,6 +220,7 @@ if run_pipeline:
     st.session_state["voice_state"] = {}
     st.session_state["remediation_state"] = None
     st.session_state["repo_validation"] = None
+    st.session_state["ai_loop_result"] = None
 
     braintrust.log_incident_run(
         incident,
@@ -291,11 +297,12 @@ with tabs[3]:
         can_apply = bool(current_state and current_state.get("validation_passed") and not current_state.get("applied"))
         can_rollback = bool(current_state and current_state.get("applied") and current_state.get("backup_path"))
 
-        btn_col_1, btn_col_2, btn_col_3, btn_col_4 = st.columns(4)
+        btn_col_1, btn_col_2, btn_col_3, btn_col_4, btn_col_5 = st.columns(5)
         generate_clicked = btn_col_1.button("Generate Patch Preview", use_container_width=True)
         validate_clicked = btn_col_2.button("Validate Syntax", disabled=not can_validate, use_container_width=True)
         apply_clicked = btn_col_3.button("Apply + Validate Repo", disabled=not can_apply, use_container_width=True)
         rollback_clicked = btn_col_4.button("Rollback", disabled=not can_rollback, use_container_width=True)
+        run_ai_loop_clicked = btn_col_5.button("Run AI Auto-Fix", disabled=not use_ai_loop, use_container_width=True)
 
         if generate_clicked:
             state = remediator.generate_patch_preview(incident, selected_idx)
@@ -326,6 +333,36 @@ with tabs[3]:
             st.session_state["repo_validation"] = None
             braintrust.log_remediation_event(incident, action="rollback", remediation_state=state)
 
+        if run_ai_loop_clicked:
+            orchestrator = AIMultiAgentFixOrchestrator(repo_root=".", max_attempts=ai_max_attempts)
+            result = orchestrator.run(incident, validation_command=validation_command)
+            st.session_state["ai_loop_result"] = result
+            remediation_state = result.get("remediation_state")
+            repo_validation = result.get("repo_validation")
+            if remediation_state:
+                st.session_state["remediation_state"] = remediation_state
+            if repo_validation:
+                st.session_state["repo_validation"] = repo_validation
+
+            for attempt in result.get("history", []):
+                braintrust.log_remediation_event(
+                    incident,
+                    action=f"ai_loop_attempt_{attempt.get('attempt')}",
+                    remediation_state={
+                        "status": "ai_attempt",
+                        "target_file": attempt.get("selected_file"),
+                        "target_line": attempt.get("selected_line"),
+                        "validation_passed": bool(attempt.get("repo_validation_ok")),
+                        "applied": bool(attempt.get("repo_validation_ok")),
+                    },
+                    repo_validation={"ok": bool(attempt.get("repo_validation_ok")), "command": "ai_loop"},
+                )
+
+            if result.get("success"):
+                st.success(f"AI loop fixed issue in {result.get('attempts')} attempt(s).")
+            else:
+                st.warning(f"AI loop did not fully fix issue after {result.get('attempts')} attempt(s).")
+
         current_state = st.session_state.get("remediation_state")
         if current_state:
             display_state = {
@@ -338,6 +375,25 @@ with tabs[3]:
                 st.code(current_state["diff"], language="diff")
 
         render_repo_validation(st.session_state.get("repo_validation"))
+
+        ai_loop_result = st.session_state.get("ai_loop_result")
+        if ai_loop_result:
+            st.markdown("<div class='panel-caption'>AI Auto-Fix Loop Result</div>", unsafe_allow_html=True)
+            st.write(
+                {
+                    "success": ai_loop_result.get("success"),
+                    "attempts": ai_loop_result.get("attempts"),
+                    "max_attempts": ai_loop_result.get("max_attempts"),
+                    "selected_file": ai_loop_result.get("selected_file"),
+                    "selected_line": ai_loop_result.get("selected_line"),
+                    "llm_enabled": ai_loop_result.get("llm_enabled"),
+                    "llm_provider": ai_loop_result.get("llm_provider"),
+                    "llm_model": ai_loop_result.get("llm_model"),
+                }
+            )
+            history = ai_loop_result.get("history", [])
+            if history:
+                st.table(history)
 
 with tabs[4]:
     voice_text = build_voice_script(incident)
