@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import difflib
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -186,31 +188,37 @@ class RemediationAgent:
         return remediation_state
 
     def run_repo_validation(self, command: str | None = None) -> dict[str, Any]:
-        validation_command = command or f"\"{sys.executable}\" -m compileall app src"
-        try:
-            result = subprocess.run(
-                validation_command,
-                cwd=self.repo_root,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            return {
-                "command": validation_command,
-                "ok": result.returncode == 0,
-                "returncode": result.returncode,
-                "stdout_tail": self._tail(result.stdout),
-                "stderr_tail": self._tail(result.stderr),
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "command": validation_command,
-                "ok": False,
-                "returncode": -1,
-                "stdout_tail": "",
-                "stderr_tail": "Validation timed out after 180 seconds.",
-            }
+        """
+        Strong default validation pipeline:
+        1) compileall for app/src
+        2) pytest -q when pytest is available and tests directory exists
+        3) optional user command (safely tokenized, no shell operators)
+        """
+        steps: list[dict[str, Any]] = []
+
+        compile_cmd = [sys.executable, "-m", "compileall", "app", "src"]
+        steps.append(self._run_validation_step(compile_cmd))
+
+        tests_dir = self.repo_root / "tests"
+        pytest_available = shutil.which("pytest") is not None
+        if tests_dir.exists() and pytest_available:
+            steps.append(self._run_validation_step([sys.executable, "-m", "pytest", "-q"]))
+
+        parsed_custom = self._parse_safe_command(command)
+        if parsed_custom:
+            steps.append(self._run_validation_step(parsed_custom))
+
+        ok = all(step.get("ok", False) for step in steps) if steps else False
+        failing_step = next((step for step in steps if not step.get("ok", False)), None)
+
+        return {
+            "command": "validation_pipeline",
+            "ok": ok,
+            "returncode": 0 if ok else int((failing_step or {}).get("returncode", -1)),
+            "stdout_tail": self._tail("\n\n".join([step.get("stdout_tail", "") for step in steps if step.get("stdout_tail")])),
+            "stderr_tail": self._tail("\n\n".join([step.get("stderr_tail", "") for step in steps if step.get("stderr_tail")])),
+            "steps": steps,
+        }
 
     def _resolve_target_file(self, file_path: str | None) -> Path | None:
         if not file_path or file_path == "unknown":
@@ -291,3 +299,44 @@ class RemediationAgent:
             return path.relative_to(self.repo_root).as_posix()
         except ValueError:
             return path.as_posix()
+
+    def _parse_safe_command(self, command: str | None) -> list[str] | None:
+        if not command:
+            return None
+        cleaned = command.strip()
+        if not cleaned:
+            return None
+        if re.search(r"[|&;><`$]", cleaned):
+            return None
+        try:
+            parsed = shlex.split(cleaned, posix=False)
+            return parsed if parsed else None
+        except ValueError:
+            return None
+
+    def _run_validation_step(self, cmd: list[str]) -> dict[str, Any]:
+        cmd_display = " ".join(cmd)
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=self.repo_root,
+                shell=False,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            return {
+                "command": cmd_display,
+                "ok": result.returncode == 0,
+                "returncode": result.returncode,
+                "stdout_tail": self._tail(result.stdout),
+                "stderr_tail": self._tail(result.stderr),
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "command": cmd_display,
+                "ok": False,
+                "returncode": -1,
+                "stdout_tail": "",
+                "stderr_tail": "Validation step timed out after 180 seconds.",
+            }

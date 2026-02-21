@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from pathlib import Path
@@ -246,8 +247,30 @@ class PatchGenerationAgent:
         if not patched:
             state["error"] = "LLM patch generation returned empty content."
             return state
+
+        if not self._is_reasonable_patch(text, patched):
+            state["error"] = "LLM patch rejected: patch scope too large or format unsafe."
+            return state
+
         state["patch_text"] = patched
         return state
+
+    def _is_reasonable_patch(self, original: str, patched: str) -> bool:
+        original_lines = original.splitlines()
+        patched_lines = patched.splitlines()
+        if not patched_lines:
+            return False
+        if original_lines == patched_lines:
+            return False
+
+        diff = list(difflib.unified_diff(original_lines, patched_lines, lineterm=""))
+        added = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
+        removed = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
+        changed = added + removed
+        max_allowed = max(20, int(len(original_lines) * 0.25))
+        if changed > max_allowed:
+            return False
+        return True
 
 
 class VerificationAgent:

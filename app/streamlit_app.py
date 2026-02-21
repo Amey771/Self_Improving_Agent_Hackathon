@@ -130,6 +130,10 @@ def render_repo_validation(repo_validation: dict | None):
             "returncode": repo_validation.get("returncode"),
             "ok": repo_validation.get("ok"),
         })
+        steps = repo_validation.get("steps")
+        if steps:
+            st.markdown("**Validation steps**")
+            st.table(steps)
         if repo_validation.get("stdout_tail"):
             st.code(repo_validation.get("stdout_tail"), language="text")
         if repo_validation.get("stderr_tail"):
