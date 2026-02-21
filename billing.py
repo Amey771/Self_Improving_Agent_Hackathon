@@ -31,7 +31,11 @@ class BillingCalculator:
         # -------------------------------
         # Critical section
         # -------------------------------
-        per_installment = taxed / installments  # ← LINE 42 (division by zero risk)
+
+        if installments == 0:
+            raise ValueError("Installments cannot be zero")
+
+        per_installment = taxed / installments
 
         return round(per_installment, 2)
 
