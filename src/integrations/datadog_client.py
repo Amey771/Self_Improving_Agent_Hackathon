@@ -11,6 +11,7 @@ class DatadogClient:
         self.api_key = Settings.DD_API_KEY
         self.app_key = Settings.DD_APP_KEY
         self.site = Settings.DD_SITE
+        self.last_source = "unknown"
 
     def fetch_incident(self, service: str, minutes: int = 10) -> Incident:
         """
@@ -18,8 +19,10 @@ class DatadogClient:
         Otherwise → simulate an incident.
         """
         if self.api_key and self.app_key:
+            self.last_source = "datadog"
             return self._fetch_real(service, minutes)
         else:
+            self.last_source = "simulation"
             return self._simulate_incident(service)
 
     def _fetch_real(self, service: str, minutes: int) -> Incident:
